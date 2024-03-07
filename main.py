@@ -1,10 +1,12 @@
-# app.py
+"""Module running a plotly server to take in the formatted serial packets."""
 
+# pylint: disable=line-too-long
+
+import os
 from dash import dash, html, dcc
 from dash.dependencies import Input, Output
 import plotly.express as px
 import serial
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -30,7 +32,7 @@ fig_map = px.scatter_mapbox(
     color_discrete_sequence=["red"],
     zoom=16, height=500, width=700,
 )
-fig_map.update_traces(marker=dict(size=12))
+fig_map.update_traces(marker={"size": 12})
 fig_map.update_layout(
     mapbox_style="white-bg",
     mapbox_layers=[{
@@ -88,13 +90,14 @@ app.layout = html.Div([
 
 @app.callback(Output('map', 'figure'),
               Input('gps-interval', 'n_intervals'))
-def update_map(interval):
-    fig_map = px.scatter_mapbox(
+def update_map():
+    """ Updates the map """
+    new_map = px.scatter_mapbox(
         location, lat='lat', lon='lon',
         color_discrete_sequence=["red"], zoom=16,
     )
-    fig_map.update_traces(marker=dict(size=12))
-    fig_map.update_layout(
+    new_map.update_traces(marker={"size": 12})
+    new_map.update_layout(
         height=500, width=700,
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
         mapbox_style="white-bg",
@@ -108,28 +111,30 @@ def update_map(interval):
         }]
     )
 
-    return fig_map
+    return new_map
 
 
 @app.callback(Output('lat-lon-text', 'children'),
               Input('gps-interval', 'n_intervals'))
-def update_lat_lon_text(interval):
+def update_lat_lon_text():
+    """ Update lat-lon text """
     return [
-        html.Span('Latitude: {:.6f}'.format(location[0]['lat'])),
-        html.Span('Longitude: {:.6f}'.format(location[0]['lon']))
+        html.Span(f'Latitude: {location[0]['lat']:.6f}'),
+        html.Span(f'Longitude: {location[0]['lat']:.6f}')
     ]
 
 
 @app.callback(Output('accel-text', 'children'),
               Input('data-interval', 'n_intervals'))
-def update_(interval):
+def update_data(): # pylint: disable=inconsistent-return-statements
+    """ Update data from serial port """
     ser.reset_input_buffer()
     try:
         line = ser.readline().strip()
-    except:
+    except: # pylint: disable=bare-except
         return
 
-    if line == "\n" or line == b'':
+    if line in ('\n', b''):
         return
 
     line_as_list = line.split(b',')
@@ -143,7 +148,7 @@ def update_(interval):
         x = float(line_as_list[6])
         y = float(line_as_list[7])
         z = float(line_as_list[8])
-    except:
+    except: # pylint: disable=bare-except
         return
 
     accel['x'].append(x)
@@ -155,23 +160,24 @@ def update_(interval):
     accel['z'] = accel['z'][-200:]
 
     return [
-        html.Span('X: {:.2f}'.format(x)),
-        html.Span('Y: {:.2f}'.format(y)),
-        html.Span('Z: {:.2f}'.format(z))
+        html.Span(f'X: {x:.2f}'),
+        html.Span(f'Y: {y:.2f}'),
+        html.Span(f'Z: {z:.2f}')
     ]
 
 
 @app.callback(Output('accel', 'figure'),
               Input('data-interval', 'n_intervals'))
-def update_data(interval):
-    fig_accel = px.line(accel)
-    fig_accel.update_layout(
+def update_accel():
+    """ Update acceleration data """
+    new_accel = px.line(accel)
+    new_accel.update_layout(
         height=500, width=500,
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
         yaxis_range=[-4,4]
     )
 
-    return fig_accel
+    return new_accel
 
 if __name__ == '__main__':
     app.run_server()
