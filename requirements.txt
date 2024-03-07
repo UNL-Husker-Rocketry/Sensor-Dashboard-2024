@@ -1,0 +1,4 @@
+dash==2.15.0
+plotly==5.19.0
+pyserial==3.5
+python-dotenv==1.0.1
