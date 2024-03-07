@@ -1,0 +1,31 @@
+body {
+    font-family: sans-serif;
+}
+
+h1 {
+    margin: 0;
+    margin-bottom: 10px;
+}
+
+h2 {
+    margin: 0;
+    margin-bottom: 10px;
+}
+
+.main-data {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.data-box {
+    border: 2px solid black;
+    padding: 3px;
+}
+
+.display_text {
+    display: flex;
+    flex-direction: column;
+    font-size: 16pt;
+    margin-bottom: 10px;
+}
