@@ -174,4 +174,4 @@ def update_data(interval):
     return fig_accel
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server()
