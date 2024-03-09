@@ -30,7 +30,7 @@ location = [
 fig_map = px.scatter_mapbox(
     location, lat='lat', lon='lon',
     color_discrete_sequence=["red"],
-    zoom=16, height=500, width=700,
+    zoom=16, height=500, width=500,
 )
 fig_map.update_traces(marker={"size": 12})
 fig_map.update_layout(
@@ -43,7 +43,7 @@ fig_map.update_layout(
             "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}"
         ]}
     ],
-    height=500, width=700,
+    height=500, width=500,
     margin={"r": 0, "t": 0, "l": 0, "b": 0}
 )
 
@@ -57,7 +57,20 @@ fig_accel = px.line(accel, y=['x', 'y', 'z'])
 fig_accel.update_layout(
     height=500, width=500,
     margin={"r": 0, "t": 0, "l": 0, "b": 0},
-    yaxis_range=[-3,3]
+    yaxis_range=[-4,4]
+)
+
+# Pressure and Temperature Data
+pt_val_graph = {
+    'press': [0.0] * 200,
+    'temp': [0.0] * 200,
+}
+pt_val = [0.0, 0.0]
+fig_pt = px.line(pt_val_graph)
+fig_pt.update_layout(
+    height=500, width=400,
+    margin={"r": 0, "t": 0, "l": 0, "b": 0},
+    yaxis_range=[0,1200]
 )
 
 app.layout = html.Div([
@@ -74,6 +87,11 @@ app.layout = html.Div([
             html.Div(id='accel-text', className='display_text'),
             dcc.Graph(id='accel', figure=fig_accel),
         ], className='data-box'),
+        html.Div([
+            html.H2("Pressure & Temperature:"),
+            html.Div(id='pt-text', className='display_text'),
+            dcc.Graph(id='pt', figure=fig_pt),
+        ], className='data-box'),
     ], className='main-data'),
     dcc.Interval(
         id='gps-interval',
@@ -82,7 +100,7 @@ app.layout = html.Div([
     ),
     dcc.Interval(
         id='data-interval',
-        interval=500,  # in milliseconds
+        interval=200,  # in milliseconds
         n_intervals=0
     ),
 ])
@@ -90,7 +108,7 @@ app.layout = html.Div([
 
 @app.callback(Output('map', 'figure'),
               Input('gps-interval', 'n_intervals'))
-def update_map():
+def update_map(interval):# pylint: disable=unused-argument
     """ Updates the map """
     new_map = px.scatter_mapbox(
         location, lat='lat', lon='lon',
@@ -98,7 +116,7 @@ def update_map():
     )
     new_map.update_traces(marker={"size": 12})
     new_map.update_layout(
-        height=500, width=700,
+        height=500, width=500,
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
         mapbox_style="white-bg",
         mapbox_layers=[{
@@ -116,7 +134,7 @@ def update_map():
 
 @app.callback(Output('lat-lon-text', 'children'),
               Input('gps-interval', 'n_intervals'))
-def update_lat_lon_text():
+def update_lat_lon_text(interval):# pylint: disable=unused-argument
     """ Update lat-lon text """
     return [
         html.Span(f'Latitude: {location[0]['lat']:.6f}'),
@@ -126,7 +144,7 @@ def update_lat_lon_text():
 
 @app.callback(Output('accel-text', 'children'),
               Input('data-interval', 'n_intervals'))
-def update_data(): # pylint: disable=inconsistent-return-statements
+def update_data(interval): # pylint: disable=inconsistent-return-statements,unused-argument
     """ Update data from serial port """
     ser.reset_input_buffer()
     try:
@@ -145,11 +163,20 @@ def update_data(): # pylint: disable=inconsistent-return-statements
         location[0]['lat'] = float(line_as_list[1])
         location[0]['lon'] = float(line_as_list[2])
 
+        pt_val[1] = float(line_as_list[4]) - 278
+        pt_val[0] = float(line_as_list[5])
+
         x = float(line_as_list[6])
         y = float(line_as_list[7])
         z = float(line_as_list[8])
     except: # pylint: disable=bare-except
         return
+
+    pt_val_graph['press'].append(pt_val[0])
+    pt_val_graph['temp'].append(pt_val[1])
+
+    pt_val_graph['press'] = pt_val_graph['press'][-200:]
+    pt_val_graph['temp'] = pt_val_graph['temp'][-200:]
 
     accel['x'].append(x)
     accel['y'].append(y)
@@ -168,7 +195,7 @@ def update_data(): # pylint: disable=inconsistent-return-statements
 
 @app.callback(Output('accel', 'figure'),
               Input('data-interval', 'n_intervals'))
-def update_accel():
+def update_accel(interval):# pylint: disable=unused-argument
     """ Update acceleration data """
     new_accel = px.line(accel)
     new_accel.update_layout(
@@ -179,5 +206,29 @@ def update_accel():
 
     return new_accel
 
+
+@app.callback(Output('pt-text', 'children'),
+              Input('data-interval', 'n_intervals'))
+def update_pt_text(interval): # pylint: disable=unused-argument
+    return [
+        html.Span(f'Pres: {pt_val[0]:.2f}mb'),
+        html.Span(f'Temp: {pt_val[1]:.2f}°C'),
+    ]
+
+
+@app.callback(Output('pt', 'figure'),
+              Input('data-interval', 'n_intervals'))
+def update_pt(interval):# pylint: disable=unused-argument
+    """ Update press&temp data """
+    new_pt = px.line(pt_val_graph)
+    new_pt.update_layout(
+        height=500, width=400,
+        margin={"r": 0, "t": 0, "l": 0, "b": 0},
+        yaxis_range=[0,1200]
+    )
+
+    return new_pt
+
+
 if __name__ == '__main__':
-    app.run_server()
+    app.run(debug=True)
