@@ -1,4 +1,4 @@
-import os
+""" A dashboard to display data from a rocket telemetry system """
 from time import sleep
 
 import usb.core
@@ -7,6 +7,8 @@ from dash import dash, html, dcc
 from dash.dependencies import Input, Output
 from dash.exceptions import PreventUpdate
 import plotly.express as px
+
+# pylint: disable=line-too-long
 
 app = dash.Dash(__name__)
 
@@ -168,10 +170,11 @@ def update_data(interval): # pylint: disable=inconsistent-return-statements,unus
         usb_device.ctrl_transfer(OUT_VENDOR_INTERFACE, 100, 1, 0) # pyright: ignore
         sleep(0.1)
         packet_bytes = usb_device.ctrl_transfer(IN_VENDOR_INTERFACE, 200, 1, 0, 0x20) # pyright: ignore
-    except:
-        raise PreventUpdate
+    except Exception as exc:
+        raise PreventUpdate from exc
 
     # Construct a packet from the incoming data
+    global packet # pylint: disable=global-statement
     packet = {
         'time': {
             'hours': packet_bytes[0],
@@ -229,6 +232,7 @@ def update_accel(interval):# pylint: disable=unused-argument
 @app.callback(Output('pt-text', 'children'),
               Input('data-interval', 'n_intervals'))
 def update_pt_text(interval): # pylint: disable=unused-argument
+    """ Update pressure and temperature data """
     return [
         html.Span(f'Pres: {packet['pressure']:.2f}mb'),
         html.Span(f'Temp: {packet['temperature']:.2f}°C'),
