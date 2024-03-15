@@ -1,34 +1,52 @@
-"""Module running a plotly server to take in the formatted serial packets."""
-
-# pylint: disable=line-too-long
-
 import os
+from time import sleep
+
+import usb.core
+import usb.util
 from dash import dash, html, dcc
 from dash.dependencies import Input, Output
+from dash.exceptions import PreventUpdate
 import plotly.express as px
-import serial
-from dotenv import load_dotenv
-
-load_dotenv()
 
 app = dash.Dash(__name__)
 
-ser = serial.Serial()
-ser.port = os.getenv('SERIAL_PORT')  # Arduino serial port
-ser.baudrate = 115200
-ser.timeout = 10  # specify timeout when using readline()
-ser.open()
-if ser.is_open is True:
-    print("\nSerial port open!")
+OUT_VENDOR_INTERFACE = ((0) << 7) | ((2) << 5) | (1)
+IN_VENDOR_INTERFACE = ((1) << 7) | ((2) << 5) | (1)
 
-# The position of the rocket from the data
-location = [
-    {'lat': 0.0, 'lon': 0.0}
-]
+# find our device
+usb_device = usb.core.find(idVendor=0x5e1f, idProduct=0x1e55)
+
+# was it found?
+if usb_device is None:
+    raise ValueError('USB Device not found... plug it in!')
+
+usb_device.set_configuration() # pyright: ignore
+cfg = usb_device.get_active_configuration() # pyright: ignore
+intf = cfg[(0, 0)]
+
+# The rocket's packet data
+packet = {
+    'time': {
+        'hours': 0,
+        'minutes': 0,
+        'seconds': 0,
+        'microseconds': 0
+    },
+    'latitude': 42,
+    'longitude': -96,
+    'altitude': 0,
+    'temperature': 0,
+    'pressure': 0,
+    'acceleration': {
+        'x': 0,
+        'y': 0,
+        'z': 0,
+    }
+}
 
 # This stuff makes the actual map
 fig_map = px.scatter_mapbox(
-    location, lat='lat', lon='lon',
+    packet, lat='latitude', lon='longitude',
     color_discrete_sequence=["red"],
     zoom=16, height=500, width=500,
 )
@@ -47,7 +65,7 @@ fig_map.update_layout(
     margin={"r": 0, "t": 0, "l": 0, "b": 0}
 )
 
-# Acceleration data
+# Acceleration graph data
 accel = {
     'x': [0.0] * 200,
     'y': [0.0] * 200,
@@ -60,12 +78,11 @@ fig_accel.update_layout(
     yaxis_range=[-4,4]
 )
 
-# Pressure and Temperature Data
+# Pressure and Temperature graph data
 pt_val_graph = {
     'press': [0.0] * 200,
     'temp': [0.0] * 200,
 }
-pt_val = [0.0, 0.0]
 fig_pt = px.line(pt_val_graph)
 fig_pt.update_layout(
     height=500, width=400,
@@ -105,13 +122,12 @@ app.layout = html.Div([
     ),
 ])
 
-
 @app.callback(Output('map', 'figure'),
               Input('gps-interval', 'n_intervals'))
 def update_map(interval):# pylint: disable=unused-argument
     """ Updates the map """
     new_map = px.scatter_mapbox(
-        location, lat='lat', lon='lon',
+        packet, lat='latitude', lon='longitude',
         color_discrete_sequence=["red"], zoom=16,
     )
     new_map.update_traces(marker={"size": 12})
@@ -137,8 +153,8 @@ def update_map(interval):# pylint: disable=unused-argument
 def update_lat_lon_text(interval):# pylint: disable=unused-argument
     """ Update lat-lon text """
     return [
-        html.Span(f'Latitude: {location[0]['lat']:.6f}'),
-        html.Span(f'Longitude: {location[0]['lat']:.6f}')
+        html.Span(f'Latitude: {packet['latitude']:.6f}'),
+        html.Span(f'Longitude: {packet['longitude']:.6f}')
     ]
 
 
@@ -146,50 +162,53 @@ def update_lat_lon_text(interval):# pylint: disable=unused-argument
               Input('data-interval', 'n_intervals'))
 def update_data(interval): # pylint: disable=inconsistent-return-statements,unused-argument
     """ Update data from serial port """
-    ser.reset_input_buffer()
+
+    # Get new data from the USB receiver
     try:
-        line = ser.readline().strip()
-    except: # pylint: disable=bare-except
-        return
+        usb_device.ctrl_transfer(OUT_VENDOR_INTERFACE, 100, 1, 0) # pyright: ignore
+        sleep(0.1)
+        packet_bytes = usb_device.ctrl_transfer(IN_VENDOR_INTERFACE, 200, 1, 0, 0x20) # pyright: ignore
+    except:
+        raise PreventUpdate
 
-    if line in ('\n', b''):
-        return
+    # Construct a packet from the incoming data
+    packet = {
+        'time': {
+            'hours': packet_bytes[0],
+            'minutes': packet_bytes[1],
+            'seconds': packet_bytes[3],
+            'microseconds': int.from_bytes(packet_bytes[4:7], "little")
+        },
+        'latitude': int.from_bytes(packet_bytes[7:11], "little", signed=True) / 1_000_000,
+        'longitude': int.from_bytes(packet_bytes[11:15], "little", signed=True) / 1_000_000,
+        'altitude': int.from_bytes(packet_bytes[15:19], "little", signed=True),
+        'temperature': int.from_bytes(packet_bytes[19:21], "little"),
+        'pressure': int.from_bytes(packet_bytes[21:23], "little") / 10,
+        'acceleration': {
+            'x': int.from_bytes(packet_bytes[23:25], "little", signed=True) / 20,
+            'y': int.from_bytes(packet_bytes[25:28], "little", signed=True) / 20,
+            'z': int.from_bytes(packet_bytes[28:30], "little", signed=True) / 20,
+        }
+    }
 
-    line_as_list = line.split(b',')
-    if len(line_as_list)  < 8:
-        return
-
-    try:
-        location[0]['lat'] = float(line_as_list[1])
-        location[0]['lon'] = float(line_as_list[2])
-
-        pt_val[1] = float(line_as_list[4]) - 278
-        pt_val[0] = float(line_as_list[5])
-
-        x = float(line_as_list[6])
-        y = float(line_as_list[7])
-        z = float(line_as_list[8])
-    except: # pylint: disable=bare-except
-        return
-
-    pt_val_graph['press'].append(pt_val[0])
-    pt_val_graph['temp'].append(pt_val[1])
+    pt_val_graph['press'].append(packet['pressure'])
+    pt_val_graph['temp'].append(packet['temperature'])
 
     pt_val_graph['press'] = pt_val_graph['press'][-200:]
     pt_val_graph['temp'] = pt_val_graph['temp'][-200:]
 
-    accel['x'].append(x)
-    accel['y'].append(y)
-    accel['z'].append(z)
+    accel['x'].append(packet['acceleration']['x'])
+    accel['y'].append(packet['acceleration']['y'])
+    accel['z'].append(packet['acceleration']['z'])
 
     accel['x'] = accel['x'][-200:]
     accel['y'] = accel['y'][-200:]
     accel['z'] = accel['z'][-200:]
 
     return [
-        html.Span(f'X: {x:.2f}'),
-        html.Span(f'Y: {y:.2f}'),
-        html.Span(f'Z: {z:.2f}')
+        html.Span(f'X: {packet['acceleration']['x']:.2f}'),
+        html.Span(f'Y: {packet['acceleration']['y']:.2f}'),
+        html.Span(f'Z: {packet['acceleration']['z']:.2f}')
     ]
 
 
@@ -211,8 +230,8 @@ def update_accel(interval):# pylint: disable=unused-argument
               Input('data-interval', 'n_intervals'))
 def update_pt_text(interval): # pylint: disable=unused-argument
     return [
-        html.Span(f'Pres: {pt_val[0]:.2f}mb'),
-        html.Span(f'Temp: {pt_val[1]:.2f}°C'),
+        html.Span(f'Pres: {packet['pressure']:.2f}mb'),
+        html.Span(f'Temp: {packet['temperature']:.2f}°C'),
     ]
 
 
@@ -228,7 +247,6 @@ def update_pt(interval):# pylint: disable=unused-argument
     )
 
     return new_pt
-
 
 if __name__ == '__main__':
     app.run(debug=True)
