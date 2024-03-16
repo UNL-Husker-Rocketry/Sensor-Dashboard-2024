@@ -5,7 +5,6 @@ import usb.core
 import usb.util
 from dash import dash, html, dcc
 from dash.dependencies import Input, Output
-from dash.exceptions import PreventUpdate
 import plotly.express as px
 
 # pylint: disable=line-too-long
@@ -34,8 +33,8 @@ packet = {
         'seconds': 0,
         'microseconds': 0
     },
-    'latitude': 42,
-    'longitude': -96,
+    'latitude': 40.806862,
+    'longitude': -96.681679,
     'altitude': 0,
     'temperature': 0,
     'pressure': 0,
@@ -94,7 +93,9 @@ fig_pt.update_layout(
 
 app.layout = html.Div([
     html.H1('UNL Rocketry Payload Dashboard'),
+    html.P(id='time'),
     html.Hr(),
+    html.Div(id='dummy'),
     html.Div([
         html.Div([
             html.H2("Position:"),
@@ -119,7 +120,7 @@ app.layout = html.Div([
     ),
     dcc.Interval(
         id='data-interval',
-        interval=200,  # in milliseconds
+        interval=500,  # in milliseconds
         n_intervals=0
     ),
 ])
@@ -160,7 +161,7 @@ def update_lat_lon_text(interval):# pylint: disable=unused-argument
     ]
 
 
-@app.callback(Output('accel-text', 'children'),
+@app.callback(Output('time', 'children'),
               Input('data-interval', 'n_intervals'))
 def update_data(interval): # pylint: disable=inconsistent-return-statements,unused-argument
     """ Update data from serial port """
@@ -170,8 +171,8 @@ def update_data(interval): # pylint: disable=inconsistent-return-statements,unus
         usb_device.ctrl_transfer(OUT_VENDOR_INTERFACE, 100, 1, 0) # pyright: ignore
         sleep(0.1)
         packet_bytes = usb_device.ctrl_transfer(IN_VENDOR_INTERFACE, 200, 1, 0, 0x20) # pyright: ignore
-    except Exception as exc:
-        raise PreventUpdate from exc
+    except Exception: # pylint: disable=broad-exception-caught
+        return dash.no_update
 
     # Construct a packet from the incoming data
     global packet # pylint: disable=global-statement
@@ -179,18 +180,18 @@ def update_data(interval): # pylint: disable=inconsistent-return-statements,unus
         'time': {
             'hours': packet_bytes[0],
             'minutes': packet_bytes[1],
-            'seconds': packet_bytes[3],
-            'microseconds': int.from_bytes(packet_bytes[4:7], "little")
+            'seconds': packet_bytes[2],
+            'microseconds': int.from_bytes(packet_bytes[3:7], "little")
         },
         'latitude': int.from_bytes(packet_bytes[7:11], "little", signed=True) / 1_000_000,
         'longitude': int.from_bytes(packet_bytes[11:15], "little", signed=True) / 1_000_000,
         'altitude': int.from_bytes(packet_bytes[15:19], "little", signed=True),
-        'temperature': int.from_bytes(packet_bytes[19:21], "little"),
+        'temperature': int.from_bytes(packet_bytes[19:21], "little") - 277,
         'pressure': int.from_bytes(packet_bytes[21:23], "little") / 10,
         'acceleration': {
             'x': int.from_bytes(packet_bytes[23:25], "little", signed=True) / 20,
-            'y': int.from_bytes(packet_bytes[25:28], "little", signed=True) / 20,
-            'z': int.from_bytes(packet_bytes[28:30], "little", signed=True) / 20,
+            'y': int.from_bytes(packet_bytes[25:27], "little", signed=True) / 20,
+            'z': int.from_bytes(packet_bytes[27:29], "little", signed=True) / 20,
         }
     }
 
@@ -208,12 +209,18 @@ def update_data(interval): # pylint: disable=inconsistent-return-statements,unus
     accel['y'] = accel['y'][-200:]
     accel['z'] = accel['z'][-200:]
 
+    return html.Span(f'{packet['time']}')
+
+
+@app.callback(Output('accel-text', 'children'),
+              Input('data-interval', 'n_intervals'))
+def update_accel_text(interval): # pylint: disable=inconsistent-return-statements,unused-argument
+    """ Update the acceleration text """
     return [
         html.Span(f'X: {packet['acceleration']['x']:.2f}'),
         html.Span(f'Y: {packet['acceleration']['y']:.2f}'),
         html.Span(f'Z: {packet['acceleration']['z']:.2f}')
     ]
-
 
 @app.callback(Output('accel', 'figure'),
               Input('data-interval', 'n_intervals'))
