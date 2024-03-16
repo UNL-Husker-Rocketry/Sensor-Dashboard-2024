@@ -76,7 +76,7 @@ fig_accel = px.line(accel, y=['x', 'y', 'z'])
 fig_accel.update_layout(
     height=500, width=500,
     margin={"r": 0, "t": 0, "l": 0, "b": 0},
-    yaxis_range=[-4,4]
+    yaxis_range=[-8.5,8.5]
 )
 
 # Pressure and Temperature graph data
@@ -84,8 +84,15 @@ pt_val_graph = {
     'press': [0.0] * 200,
     'temp': [0.0] * 200,
 }
-fig_pt = px.line(pt_val_graph)
-fig_pt.update_layout(
+fig_pressure = px.line(pt_val_graph['press'])
+fig_pressure.update_layout(
+    height=500, width=400,
+    margin={"r": 0, "t": 0, "l": 0, "b": 0},
+    yaxis_range=[0,1200]
+)
+
+fig_temperature = px.line(pt_val_graph['temp'])
+fig_temperature.update_layout(
     height=500, width=400,
     margin={"r": 0, "t": 0, "l": 0, "b": 0},
     yaxis_range=[0,1200]
@@ -110,7 +117,8 @@ app.layout = html.Div([
         html.Div([
             html.H2("Pressure & Temperature:"),
             html.Div(id='pt-text', className='display_text'),
-            dcc.Graph(id='pt', figure=fig_pt),
+            dcc.Graph(id='pressure', figure=fig_pressure),
+            dcc.Graph(id='temperature', figure=fig_temperature),
         ], className='data-box'),
     ], className='main-data'),
     dcc.Interval(
@@ -120,7 +128,7 @@ app.layout = html.Div([
     ),
     dcc.Interval(
         id='data-interval',
-        interval=500,  # in milliseconds
+        interval=200,  # in milliseconds
         n_intervals=0
     ),
 ])
@@ -135,7 +143,7 @@ def update_map(interval):# pylint: disable=unused-argument
     )
     new_map.update_traces(marker={"size": 12})
     new_map.update_layout(
-        height=500, width=500,
+        autosize=True,
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
         mapbox_style="white-bg",
         mapbox_layers=[{
@@ -171,7 +179,8 @@ def update_data(interval): # pylint: disable=inconsistent-return-statements,unus
         usb_device.ctrl_transfer(OUT_VENDOR_INTERFACE, 100, 1, 0) # pyright: ignore
         sleep(0.1)
         packet_bytes = usb_device.ctrl_transfer(IN_VENDOR_INTERFACE, 200, 1, 0, 0x20) # pyright: ignore
-    except Exception: # pylint: disable=broad-exception-caught
+    except Exception as exc: # pylint: disable=broad-exception-caught
+        print(f"{exc}")
         return dash.no_update
 
     # Construct a packet from the incoming data
@@ -186,7 +195,7 @@ def update_data(interval): # pylint: disable=inconsistent-return-statements,unus
         'latitude': int.from_bytes(packet_bytes[7:11], "little", signed=True) / 1_000_000,
         'longitude': int.from_bytes(packet_bytes[11:15], "little", signed=True) / 1_000_000,
         'altitude': int.from_bytes(packet_bytes[15:19], "little", signed=True),
-        'temperature': int.from_bytes(packet_bytes[19:21], "little") - 277,
+        'temperature': (int.from_bytes(packet_bytes[19:21], "little") / 10) - 5,
         'pressure': int.from_bytes(packet_bytes[21:23], "little") / 10,
         'acceleration': {
             'x': int.from_bytes(packet_bytes[23:25], "little", signed=True) / 20,
@@ -194,6 +203,9 @@ def update_data(interval): # pylint: disable=inconsistent-return-statements,unus
             'z': int.from_bytes(packet_bytes[27:29], "little", signed=True) / 20,
         }
     }
+
+    packet['latitude'] = packet['latitude'] + 2
+    packet['longitude'] = packet['longitude'] + 2
 
     pt_val_graph['press'].append(packet['pressure'])
     pt_val_graph['temp'].append(packet['temperature'])
@@ -228,9 +240,10 @@ def update_accel(interval):# pylint: disable=unused-argument
     """ Update acceleration data """
     new_accel = px.line(accel)
     new_accel.update_layout(
-        height=500, width=500,
+        autosize=True,
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
-        yaxis_range=[-4,4]
+        yaxis_range=[-8.5,8.5],
+        xaxis={'showticklabels': False, 'title': ''},
     )
 
     return new_accel
@@ -246,18 +259,37 @@ def update_pt_text(interval): # pylint: disable=unused-argument
     ]
 
 
-@app.callback(Output('pt', 'figure'),
+@app.callback(Output('pressure', 'figure'),
               Input('data-interval', 'n_intervals'))
-def update_pt(interval):# pylint: disable=unused-argument
+def update_pressure(interval):# pylint: disable=unused-argument
     """ Update press&temp data """
-    new_pt = px.line(pt_val_graph)
-    new_pt.update_layout(
-        height=500, width=400,
+    new_pressure = px.line(pt_val_graph['press'])
+    new_pressure.update_layout(
+        autosize=True,
+        height=250,
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
-        yaxis_range=[0,1200]
+        yaxis_range=[300,1250],
+        xaxis={'showticklabels': False, 'title': ''},
+        showlegend=False,
     )
 
-    return new_pt
+    return new_pressure
+
+@app.callback(Output('temperature', 'figure'),
+              Input('data-interval', 'n_intervals'))
+def update_temperature(interval):# pylint: disable=unused-argument
+    """ Update press&temp data """
+    new_temperature = px.line(pt_val_graph['temp'])
+    new_temperature.update_traces(line_color='#ffaf79')
+    new_temperature.update_layout(
+        autosize=True,
+        height=250,
+        margin={"r": 0, "t": 0, "l": 0, "b": 0},
+        xaxis={'showticklabels': False, 'title': ''},
+        showlegend=False,
+    )
+
+    return new_temperature
 
 if __name__ == '__main__':
     app.run(debug=True)
