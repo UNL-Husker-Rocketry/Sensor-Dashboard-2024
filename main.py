@@ -204,9 +204,6 @@ def update_data(interval): # pylint: disable=inconsistent-return-statements,unus
         }
     }
 
-    packet['latitude'] = packet['latitude'] + 2
-    packet['longitude'] = packet['longitude'] + 2
-
     pt_val_graph['press'].append(packet['pressure'])
     pt_val_graph['temp'].append(packet['temperature'])
 
